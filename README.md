@@ -2,6 +2,43 @@
 
 A small, standard-library Python pipeline answering: **is a selected route running late at a selected IST timestamp, and by how many minutes?**
 
+## Example Verdict
+
+```text
+Route: Thane → Powai
+as_of: 2026-06-15T07:30:00+05:30
+Verdict: ON_TIME
+Delay: -0.615 minutes
+Spatial uncertainty: ±0.023 minutes
+Trip: TRIP_001
+```
+
+The bus was estimated to be about 0.6 minutes ahead of schedule, with very small spatial uncertainty.
+
+## How It Works
+
+```text
+GPS Pings
+→ Trip Resolution
+→ Route Projection
+→ Quality Checks
+→ Lateness + Uncertainty
+→ LATE / ON_TIME / EARLY / UNKNOWN
+```
+
+## Key Engineering Decisions
+
+- Raw telemetry is preserved; source rows are never silently deleted.
+- Delayed telemetry is retained for auditability but is not treated as current.
+- Implausible GPS movement is flagged and excluded from a live numeric snapshot when it affects the selected evidence.
+- Projection error becomes time uncertainty instead of an arbitrary hard distance cutoff.
+- `UNKNOWN` is returned when the data cannot support a trustworthy answer.
+- Multiple active vehicles are not averaged into one misleading route delay.
+
+## Why UNKNOWN Is Intentional
+
+The pipeline prefers `UNKNOWN` over an unreliable lateness number when telemetry is stale, delayed, corrupted, ambiguous, or too uncertain. This makes the route verdict safer for operational decisions and keeps the reason visible in the audit output.
+
 ## Problem and approach
 
 The pipeline reads the supplied CSV bundle without modifying it, assigns pings to vehicle-trips, projects positions onto the ordered stop polyline, and calculates schedule-progress delay. It returns one route-level `LATE`, `EARLY`, `ON_TIME`, or `UNKNOWN` verdict with an audit trail.
@@ -58,6 +95,8 @@ This is a batch replay over a static CSV extract. Stop geometry is not map-match
 ## Real-time evolution
 
 In production, ingest GPS events to an append-only stream, retain both event and receipt times, maintain state per vehicle-trip, apply the same quality rules under out-of-order arrivals, and publish versioned route snapshots. Alerting should suppress stale, delayed, or ambiguous telemetry while retaining its audit trail.
+
+See [MEMO.md](MEMO.md) for the concise analysis, anomaly treatment, tradeoffs, and real-time discussion.
 
 ## Tests
 
